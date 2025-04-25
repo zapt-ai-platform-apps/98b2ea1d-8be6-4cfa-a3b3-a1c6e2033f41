@@ -1,7 +1,8 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import { authenticateUser, getUserRole } from './_apiUtils.js';
-import { users, orgs } from '../drizzle/schema.js';
+import { users } from '../drizzle/schema.js';
+import { orgs } from '../drizzle/schema.js'; // Fixed: separate import to ensure it's properly loaded
 import { eq } from 'drizzle-orm';
 import Sentry from './_sentry.js';
 
@@ -35,33 +36,47 @@ export default async function handler(req, res) {
       if (error.message === 'User not found in database') {
         console.log('User not found in database, creating new user record');
         
-        // Find the demo organization
-        const demoOrgRecords = await db.select().from(orgs).where(eq(orgs.name, 'Hopwood Hall College'));
-        
-        if (!demoOrgRecords || demoOrgRecords.length === 0) {
-          throw new Error('Demo organization not found');
+        try {
+          // Debug logs to verify orgs is properly imported
+          console.log('Looking for demo organization...');
+          
+          // Find the demo organization
+          const demoOrgRecords = await db.select().from(orgs).where(eq(orgs.name, 'Hopwood Hall College'));
+          console.log('Demo org query executed, records found:', demoOrgRecords?.length);
+          
+          if (!demoOrgRecords || demoOrgRecords.length === 0) {
+            console.error('Demo organization not found');
+            throw new Error('Demo organization not found');
+          }
+          
+          const demoOrg = demoOrgRecords[0];
+          console.log('Using demo org:', demoOrg.id);
+          
+          // Create a new user record
+          await db.insert(users).values({
+            id: user.id,
+            orgId: demoOrg.id,
+            role: 'apprentice', // Default role
+            email: user.email,
+            name: user.email.split('@')[0] // Default name from email
+          });
+          
+          console.log('New user record created successfully');
+          
+          // Fetch the newly created user
+          const newUserRecord = await getUserRole(user.id, db);
+          
+          return res.status(200).json({
+            id: user.id,
+            email: user.email,
+            ...newUserRecord,
+            isNewUser: true
+          });
+        } catch (createError) {
+          console.error('Error creating new user:', createError);
+          Sentry.captureException(createError);
+          throw createError;
         }
-        
-        const demoOrg = demoOrgRecords[0];
-        
-        // Create a new user record
-        await db.insert(users).values({
-          id: user.id,
-          orgId: demoOrg.id,
-          role: 'apprentice', // Default role
-          email: user.email,
-          name: user.email.split('@')[0] // Default name from email
-        });
-        
-        // Fetch the newly created user
-        const newUserRecord = await getUserRole(user.id, db);
-        
-        return res.status(200).json({
-          id: user.id,
-          email: user.email,
-          ...newUserRecord,
-          isNewUser: true
-        });
       } else {
         // If it's another error, rethrow it
         throw error;

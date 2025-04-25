@@ -2,6 +2,7 @@ import { initializeZapt } from '@zapt/zapt-js';
 import * as Sentry from '@sentry/node';
 import { eq } from 'drizzle-orm';
 import { users } from '../drizzle/schema.js';
+import { logChanges } from '../drizzle/schema.js'; // Fixed: explicit import for logChanges
 
 // Initialize Sentry
 Sentry.init({
