@@ -19,49 +19,54 @@ export default async function handler(req, res) {
     const user = await authenticateUser(req);
     console.log('User authenticated:', user.id);
 
-    // Get the user's role and organization from the database
-    const userRecord = await getUserRole(user.id, db);
-    
-    if (!userRecord) {
-      console.log('User not found in database, creating new user record');
+    try {
+      // Get the user's role and organization from the database
+      const userRecord = await getUserRole(user.id, db);
       
-      // If the user is not in the database yet, we need to create a new record
-      // For now, assign them to the demo organization with a default role
-      const demoOrg = await db.query.orgs.findFirst({
-        where: (orgs, { eq }) => eq(orgs.name, 'Hopwood Hall College')
-      });
-      
-      if (!demoOrg) {
-        throw new Error('Demo organization not found');
-      }
-      
-      // Create a new user record
-      await db.insert(users).values({
-        id: user.id,
-        orgId: demoOrg.id,
-        role: 'apprentice', // Default role
-        email: user.email,
-        name: user.email.split('@')[0] // Default name from email
-      });
-      
-      // Fetch the newly created user
-      const newUserRecord = await getUserRole(user.id, db);
-      
+      // Return the user data with the role and organization
       return res.status(200).json({
         id: user.id,
         email: user.email,
-        ...newUserRecord,
-        isNewUser: true
+        ...userRecord,
+        isNewUser: false
       });
+    } catch (error) {
+      // If the error is that the user is not found, create a new user
+      if (error.message === 'User not found in database') {
+        console.log('User not found in database, creating new user record');
+        
+        // Find the demo organization
+        const demoOrgRecords = await db.select().from(orgs).where(eq(orgs.name, 'Hopwood Hall College'));
+        
+        if (!demoOrgRecords || demoOrgRecords.length === 0) {
+          throw new Error('Demo organization not found');
+        }
+        
+        const demoOrg = demoOrgRecords[0];
+        
+        // Create a new user record
+        await db.insert(users).values({
+          id: user.id,
+          orgId: demoOrg.id,
+          role: 'apprentice', // Default role
+          email: user.email,
+          name: user.email.split('@')[0] // Default name from email
+        });
+        
+        // Fetch the newly created user
+        const newUserRecord = await getUserRole(user.id, db);
+        
+        return res.status(200).json({
+          id: user.id,
+          email: user.email,
+          ...newUserRecord,
+          isNewUser: true
+        });
+      } else {
+        // If it's another error, rethrow it
+        throw error;
+      }
     }
-    
-    // Return the user data with the role and organization
-    return res.status(200).json({
-      id: user.id,
-      email: user.email,
-      ...userRecord,
-      isNewUser: false
-    });
   } catch (error) {
     console.error('Error in getUserData:', error);
     Sentry.captureException(error);

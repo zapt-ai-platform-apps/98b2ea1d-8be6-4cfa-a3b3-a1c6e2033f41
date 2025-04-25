@@ -1,5 +1,7 @@
 import { initializeZapt } from '@zapt/zapt-js';
 import * as Sentry from '@sentry/node';
+import { eq } from 'drizzle-orm';
+import { users } from '../drizzle/schema.js';
 
 // Initialize Sentry
 Sentry.init({
@@ -46,26 +48,26 @@ export async function authenticateUser(req) {
 export async function getUserRole(userId, db) {
   try {
     console.log('Getting user role for userId:', userId);
-    // Query the database to get the user's role
-    const userRecord = await db.query.users.findFirst({
-      where: (users, { eq }) => eq(users.id, userId),
-      columns: {
-        role: true,
-        orgId: true,
-        name: true,
-        email: true
-      }
-    });
+    // Query the database to get the user's role using the correct Drizzle query pattern
+    const userRecords = await db.select({
+      role: users.role,
+      orgId: users.orgId,
+      name: users.name,
+      email: users.email
+    })
+    .from(users)
+    .where(eq(users.id, userId));
 
-    if (!userRecord) {
+    if (!userRecords || userRecords.length === 0) {
       console.error('User record not found in database');
       throw new Error('User not found in database');
     }
 
+    const userRecord = userRecords[0];
     console.log('Found user role:', userRecord.role);
     return userRecord;
   } catch (error) {
-    console.error('Error getting user role:', error.message);
+    console.error('Error getting user role:', error.message, error.stack);
     Sentry.captureException(error);
     throw error;
   }
