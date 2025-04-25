@@ -22,26 +22,55 @@ export async function authenticateUser(req) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
+      console.error('Authentication failed: Missing Authorization header');
       throw new Error('Missing Authorization header');
     }
 
-    const token = authHeader.split(' ')[1];
-    const { data: { user }, error } = await supabase.auth.getUser(token);
+    // Log token format (safely)
+    const authParts = authHeader.split(' ');
+    if (authParts.length !== 2 || authParts[0] !== 'Bearer') {
+      console.error('Authentication failed: Invalid Authorization header format');
+      throw new Error('Invalid Authorization header format. Expected: Bearer <token>');
+    }
+
+    const token = authParts[1];
+    console.log('Token format check:', {
+      length: token.length,
+      startsWithEy: token.startsWith('ey'),
+      hasThreeParts: token.split('.').length === 3
+    });
+
+    console.log('Calling supabase.auth.getUser with token');
+    const { data, error } = await supabase.auth.getUser(token);
 
     if (error) {
-      console.error('Authentication error:', error.message);
-      throw new Error('Invalid token');
+      console.error('Authentication error details:', {
+        message: error.message,
+        status: error.status,
+        name: error.name,
+        code: error.code
+      });
+      
+      // Enhanced error for troubleshooting
+      throw new Error(`Invalid token: ${error.message}`);
     }
 
-    if (!user) {
-      throw new Error('User not found');
+    if (!data || !data.user) {
+      console.error('Authentication failed: User not found in Supabase response');
+      throw new Error('User not found in authentication response');
     }
 
-    console.log('Authenticated user:', user.email, 'with ID:', user.id);
-    return user;
+    console.log('Authenticated user:', data.user.email, 'with ID:', data.user.id);
+    return data.user;
   } catch (error) {
-    console.error('Authentication error:', error.message);
-    Sentry.captureException(error);
+    console.error('Authentication error:', error.message, error.stack);
+    Sentry.captureException(error, {
+      extra: {
+        hasAuthHeader: !!req.headers.authorization,
+        authHeaderStart: req.headers.authorization ? 
+          `${req.headers.authorization.substring(0, 15)}...` : 'N/A'
+      }
+    });
     throw error;
   }
 }

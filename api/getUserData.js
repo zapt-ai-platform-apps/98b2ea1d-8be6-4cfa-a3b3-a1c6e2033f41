@@ -74,22 +74,32 @@ export default async function handler(req, res) {
   console.log('getUserData API called');
   
   if (req.method !== 'GET') {
+    console.error('Method not allowed:', req.method);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const client = postgres(process.env.COCKROACH_DB_URL);
-  const db = drizzle(client);
+  // Log headers for debugging (redact sensitive info)
+  const safeHeaders = { ...req.headers };
+  if (safeHeaders.authorization) {
+    safeHeaders.authorization = safeHeaders.authorization.substring(0, 15) + '...';
+  }
+  console.log('Request headers:', safeHeaders);
 
+  let client;
   try {
+    client = postgres(process.env.COCKROACH_DB_URL);
+    const db = drizzle(client);
+
     // Log that we're authenticating the user
     console.log('Authenticating user...');
     const user = await authenticateUser(req);
     
     // Log the authenticated user's ID
-    console.log('User authenticated:', user.id, 'Type:', typeof user.id);
+    console.log('User authenticated:', user.email, 'with ID:', user.id, 'Type:', typeof user.id);
     
     // Check if user.id is valid
     if (!user.id) {
+      console.error('User ID is missing from authentication response');
       throw new Error('User ID is missing from authentication response');
     }
     
@@ -145,9 +155,26 @@ export default async function handler(req, res) {
     }
   } catch (error) {
     console.error('Error in getUserData:', error);
-    Sentry.captureException(error);
-    return res.status(500).json({ error: error.message });
+    Sentry.captureException(error, {
+      extra: {
+        method: req.method,
+        headers: safeHeaders,
+        userId: req.userId
+      }
+    });
+    
+    // Return a more informative error
+    return res.status(error.message.includes('Missing Authorization') || 
+                      error.message.includes('Invalid token') ? 401 : 500)
+             .json({ 
+               error: error.message,
+               details: process.env.VITE_PUBLIC_APP_ENV === 'development' ? error.stack : undefined
+             });
   } finally {
-    await client.end();
+    if (client) {
+      await client.end().catch(err => {
+        console.error('Error closing database connection:', err);
+      });
+    }
   }
 }
