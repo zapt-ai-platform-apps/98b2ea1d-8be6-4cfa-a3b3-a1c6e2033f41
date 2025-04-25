@@ -2,7 +2,7 @@ import { initializeZapt } from '@zapt/zapt-js';
 import * as Sentry from '@sentry/node';
 import { eq } from 'drizzle-orm';
 import { users } from '../drizzle/schema.js';
-import { logChanges } from '../drizzle/schema.js'; // Fixed: explicit import for logChanges
+import { logChanges } from '../drizzle/schema.js';
 
 // Initialize Sentry
 Sentry.init({
@@ -37,7 +37,7 @@ export async function authenticateUser(req) {
       throw new Error('User not found');
     }
 
-    console.log('Authenticated user:', user.email);
+    console.log('Authenticated user:', user.email, 'with ID:', user.id);
     return user;
   } catch (error) {
     console.error('Authentication error:', error.message);
@@ -48,8 +48,14 @@ export async function authenticateUser(req) {
 
 export async function getUserRole(userId, db) {
   try {
+    if (!userId) {
+      console.error('No userId provided to getUserRole');
+      throw new Error('No userId provided to getUserRole');
+    }
+    
     console.log('Getting user role for userId:', userId);
-    // Query the database to get the user's role using the correct Drizzle query pattern
+    
+    // Query the database to get the user's role
     const userRecords = await db.select({
       role: users.role,
       orgId: users.orgId,
@@ -58,12 +64,14 @@ export async function getUserRole(userId, db) {
     })
     .from(users)
     .where(eq(users.id, userId));
-
+    
+    console.log('User record query returned', userRecords?.length || 0, 'results');
+    
     if (!userRecords || userRecords.length === 0) {
-      console.error('User record not found in database');
+      console.error(`User record not found in database for userId: ${userId}`);
       throw new Error('User not found in database');
     }
-
+    
     const userRecord = userRecords[0];
     console.log('Found user role:', userRecord.role);
     return userRecord;
